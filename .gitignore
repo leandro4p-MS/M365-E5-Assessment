@@ -1,0 +1,8 @@
+# ===== Dados coletados do tenant (nunca commitar) =====
+M365E5_Assessment_*/
+*.csv
+*.xlsx
+
+# ===== Sistema =====
+.DS_Store
+Thumbs.db

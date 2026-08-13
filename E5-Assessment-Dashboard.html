@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Microsoft 365 E5 - Assessment de Adocao</title>
+<style>
+  :root{
+    --bg:#f3f2f1; --card:#ffffff; --line:#e1dfdd; --txt:#201f1e; --txt2:#605e5c;
+    --brand:#0f6cbd; --ok:#107c10; --warn:#f2b705; --bad:#d13438; --mid:#ef6c00; --none:#8a8886;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.45 "Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif}
+  header{background:linear-gradient(90deg,#0f6cbd,#2b88d8);color:#fff;padding:1.4rem 2rem}
+  header h1{margin:0;font-size:1.35rem;font-weight:600}
+  header p{margin:.25rem 0 0;opacity:.9;font-size:.85rem}
+  .wrap{max-width:1400px;margin:0 auto;padding:1.5rem 2rem 4rem}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:1.25rem;margin-bottom:1.25rem}
+  .card h2{margin:0 0 1rem;font-size:1.05rem;font-weight:600}
+  .card h2 small{font-weight:400;color:var(--txt2);font-size:.8rem;margin-left:.5rem}
+  .toolbar{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-top:.9rem}
+  button,.btn{background:var(--brand);color:#fff;border:0;border-radius:4px;padding:.55rem 1rem;font-size:.85rem;cursor:pointer}
+  button.sec{background:#fff;color:var(--brand);border:1px solid var(--brand)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .drop{border:2px dashed #c8c6c4;border-radius:8px;padding:2.2rem;text-align:center;color:var(--txt2);background:#fafafa}
+  .drop.over{border-color:var(--brand);background:#eff6fc}
+  .msg{padding:.7rem 1rem;border-radius:4px;margin-top:.9rem;font-size:.85rem;display:none}
+  .msg.err{background:#fde7e9;color:#a4262c;display:block}
+  .msg.ok{background:#dff6dd;color:#0b6a0b;display:block}
+  .files{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.9rem}
+  .chip{font-size:.72rem;background:#eef3f8;border:1px solid #d6e3f0;color:#22456b;border-radius:12px;padding:.15rem .6rem}
+  .chip.miss{background:#f6f6f6;border-color:#e1dfdd;color:#8a8886}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:1rem}
+  .kpi .v{font-size:1.9rem;font-weight:600;line-height:1.1}
+  .kpi .l{font-size:.75rem;color:var(--txt2);text-transform:uppercase;letter-spacing:.03em;margin-top:.35rem}
+  .gauges{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:1rem;text-align:center}
+  .gauges .lbl{font-size:.85rem;color:var(--txt2);margin-top:.3rem}
+  table{width:100%;border-collapse:collapse;font-size:.83rem}
+  th,td{padding:.5rem .6rem;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle}
+  th{background:#faf9f8;font-weight:600;color:var(--txt2);position:sticky;top:0}
+  tbody tr:hover{background:#f8f9fb}
+  .num{text-align:right;font-variant-numeric:tabular-nums}
+  .pill{display:inline-block;padding:.12rem .55rem;border-radius:10px;font-size:.72rem;color:#fff;white-space:nowrap}
+  .bar{height:10px;border-radius:5px;background:#edebe9;overflow:hidden;min-width:90px}
+  .bar > i{display:block;height:100%}
+  .scroll{max-height:520px;overflow:auto}
+  .filters{display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:.9rem}
+  input[type=search],select{padding:.45rem .6rem;border:1px solid #c8c6c4;border-radius:4px;font-size:.83rem;background:#fff}
+  .rec{border-left:4px solid var(--line);padding:.7rem 1rem;margin-bottom:.7rem;background:#faf9f8;border-radius:0 4px 4px 0}
+  .rec b{display:block;font-size:.9rem}
+  .rec span{color:var(--txt2);font-size:.82rem}
+  .hide{display:none}
+  footer{color:var(--txt2);font-size:.78rem;text-align:center;padding:1rem}
+  footer .credito{margin-top:.35rem;font-weight:600;color:var(--brand)}
+  @media print{
+    body{background:#fff}
+    header{background:#0f6cbd !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .noprint{display:none !important}
+    .card{break-inside:avoid;page-break-inside:avoid;border-color:#ccc}
+    .scroll{max-height:none;overflow:visible}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Microsoft 365 E5 - Assessment de Adocao de Seguranca e Purview</h1>
+  <p>Entitled x Coberto por workload. Os arquivos sao lidos localmente no navegador; nada e enviado para a internet.</p>
+</header>
+<div class="wrap">
+
+  <div class="card noprint" id="cardUpload">
+    <h2>Importar dados <small>gerados por Invoke-M365E5Assessment.ps1</small></h2>
+    <div class="drop" id="drop">
+      Arraste os arquivos CSV aqui ou selecione a pasta do assessment.
+      <div class="toolbar" style="justify-content:center">
+        <button id="btnFolder">Selecionar pasta</button>
+        <button class="sec" id="btnFiles">Selecionar arquivos</button>
+      </div>
+      <input type="file" id="inFolder" webkitdirectory directory multiple hidden>
+      <input type="file" id="inFiles" multiple accept=".csv" hidden>
+    </div>
+    <div class="files" id="chips"></div>
+    <div class="msg" id="msg"></div>
+    <div class="toolbar">
+      <button id="btnRender" disabled>Gerar relatorio</button>
+      <button class="sec" id="btnPrint" disabled>Imprimir / PDF</button>
+      <span style="font-size:.78rem;color:var(--txt2)">Obrigatorios: 00_Sumario.csv e 08b_Cobertura_PorWorkload.csv</span>
+    </div>
+  </div>
+
+  <div id="report" class="hide">
+    <div class="card" id="secKpis"><h2>Visao geral</h2><div class="kpis" id="kpis"></div></div>
+    <div class="card" id="secGauges"><h2>Adocao por pilar</h2><div class="gauges" id="gauges"></div></div>
+    <div class="card" id="secHeat">
+      <h2>Cobertura por workload <small>usuarios licenciados x usuarios efetivamente cobertos</small></h2>
+      <div class="scroll"><table id="tblWl"><thead><tr>
+        <th>Workload</th><th>Pilar</th><th class="num">Entitled</th><th class="num">Coberto</th>
+        <th class="num">Gap</th><th style="width:190px">Adocao</th><th>Maturidade</th><th>Evidencia usada</th>
+      </tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="card hide" id="secSku">
+      <h2>Licenciamento <small>SKUs do tenant</small></h2>
+      <div class="scroll"><table id="tblSku"><thead><tr>
+        <th>SKU</th><th>E5</th><th class="num">Compradas</th><th class="num">Atribuidas</th>
+        <th class="num">Disponiveis</th><th style="width:160px">Uso</th>
+      </tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="card hide" id="secRec"><h2>Recomendacoes priorizadas</h2><div id="recs"></div></div>
+    <div class="card hide" id="secUsr">
+      <h2>Cobertura por usuario <small id="usrCount"></small></h2>
+      <div class="filters noprint">
+        <input type="search" id="fltUsr" placeholder="Filtrar por usuario...">
+        <select id="fltWl"><option value="">Todos os workloads</option></select>
+        <select id="fltSt"><option value="">Qualquer situacao</option>
+          <option value="Coberto">Coberto</option>
+          <option value="NaoCoberto">Nao coberto</option>
+          <option value="NaoLicenciado">Nao licenciado</option>
+          <option value="SemEvidencia">Sem evidencia</option>
+        </select>
+        <select id="fltE5"><option value="">Todos</option><option value="True">Somente com E5</option></select>
+      </div>
+      <div class="scroll"><table id="tblUsr"><thead></thead><tbody></tbody></table></div>
+      <div class="toolbar noprint"><button class="sec" id="btnMais">Carregar mais 200</button></div>
+    </div>
+    <div class="card hide" id="secScore"><h2>Microsoft Secure Score <small id="scoreSub"></small></h2>
+      <div class="scroll"><table id="tblScore"><thead><tr>
+        <th>Controle</th><th>Categoria</th><th>Estado</th><th class="num">Pontos</th>
+      </tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="card hide" id="secAl"><h2>Alertas por produto Defender <small>evidencia de uso no periodo</small></h2>
+      <div id="alerts"></div>
+    </div>
+  </div>
+  <footer>
+    <div id="foot"></div>
+    <div class="credito">Criado por Leandro Lima - 4P</div>
+  </footer>
+</div>
+
+<script>
+"use strict";
+const REQ = ["00_Sumario.csv", "08b_Cobertura_PorWorkload.csv"];
+const OPT = ["01_SKUs_Tenant.csv", "08_Cobertura_PorUsuario.csv", "09_Recomendacoes.csv",
+             "07_SecureScore.csv", "04d_Alertas.csv"];
+const data = {};
+
+function parseCsv(text) {
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  const rows = [];
+  let row = [], field = "", quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; } else { quoted = false; }
+      } else field += c;
+      continue;
+    }
+    if (c === '"') { quoted = true; continue; }
+    if (c === ',') { row.push(field); field = ""; continue; }
+    if (c === '\r') continue;
+    if (c === '\n') { row.push(field); rows.push(row); row = []; field = ""; continue; }
+    field += c;
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  const clean = rows.filter(r => r.some(v => v !== ""));
+  if (clean.length < 2) return { cols: clean[0] || [], rows: [] };
+  const cols = clean[0].map(c => c.trim());
+  const out = clean.slice(1).map(r => {
+    const o = {};
+    cols.forEach((c, i) => o[c] = (r[i] === undefined ? "" : r[i]));
+    return o;
+  });
+  return { cols: cols, rows: out };
+}
+
+function num(v) { const n = parseFloat(String(v).replace(",", ".")); return isNaN(n) ? 0 : n; }
+function esc(s) { return String(s === undefined || s === null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+function corPct(p, ok) {
+  if (!ok) return "var(--none)";
+  if (p >= 80) return "var(--ok)";
+  if (p >= 50) return "var(--warn)";
+  if (p > 0) return "var(--mid)";
+  return "var(--bad)";
+}
+
+const chips = document.getElementById("chips");
+const msg = document.getElementById("msg");
+function showMsg(kind, text) { msg.className = "msg " + kind; msg.textContent = text; }
+function refreshChips() {
+  chips.innerHTML = REQ.concat(OPT).map(f => {
+    const has = !!data[f];
+    return '<span class="chip' + (has ? "" : " miss") + '">' + (has ? "OK " : "") + f + "</span>";
+  }).join("");
+  const pronto = REQ.every(f => data[f] && data[f].rows.length);
+  document.getElementById("btnRender").disabled = !pronto;
+  if (pronto) showMsg("ok", "Arquivos obrigatorios carregados. Clique em Gerar relatorio.");
+}
+
+function readFiles(list) {
+  const alvos = REQ.concat(OPT);
+  const jobs = [];
+  for (const f of list) {
+    const nome = alvos.find(a => a.toLowerCase() === f.name.toLowerCase());
+    if (!nome) continue;
+    jobs.push(new Promise(res => {
+      const fr = new FileReader();
+      fr.onload = () => { data[nome] = parseCsv(fr.result); res(); };
+      fr.onerror = () => res();
+      fr.readAsText(f, "UTF-8");
+    }));
+  }
+  if (!jobs.length) { showMsg("err", "Nenhum CSV reconhecido do assessment foi encontrado na selecao."); return; }
+  Promise.all(jobs).then(refreshChips);
+}
+
+document.getElementById("btnFolder").onclick = () => document.getElementById("inFolder").click();
+document.getElementById("btnFiles").onclick = () => document.getElementById("inFiles").click();
+document.getElementById("inFolder").onchange = e => readFiles(e.target.files);
+document.getElementById("inFiles").onchange = e => readFiles(e.target.files);
+const drop = document.getElementById("drop");
+drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", e => { e.preventDefault(); drop.classList.remove("over"); readFiles(e.dataTransfer.files); });
+document.getElementById("btnPrint").onclick = () => window.print();
+document.getElementById("btnRender").onclick = render;
+
+function kpi(v, l) { return '<div class="kpi"><div class="v">' + esc(v) + '</div><div class="l">' + esc(l) + "</div></div>"; }
+
+function donut(pct, cor) {
+  const r = 46, c = 2 * Math.PI * r, off = c * (1 - Math.min(100, Math.max(0, pct)) / 100);
+  return '<svg width="120" height="120" viewBox="0 0 120 120">' +
+    '<circle cx="60" cy="60" r="' + r + '" fill="none" stroke="#edebe9" stroke-width="12"></circle>' +
+    '<circle cx="60" cy="60" r="' + r + '" fill="none" stroke="' + cor + '" stroke-width="12" stroke-linecap="round" ' +
+    'stroke-dasharray="' + c.toFixed(1) + '" stroke-dashoffset="' + off.toFixed(1) + '" transform="rotate(-90 60 60)"></circle>' +
+    '<text x="60" y="66" text-anchor="middle" font-size="22" font-weight="600" fill="#201f1e">' + pct.toFixed(0) + "%</text></svg>";
+}
+
+function render() {
+  const sum = (data["00_Sumario.csv"].rows[0]) || {};
+  const wl = data["08b_Cobertura_PorWorkload.csv"].rows;
+
+  document.getElementById("kpis").innerHTML =
+    kpi((sum.ScoreAdocaoE5Pct || 0) + "%", "Score de adocao E5") +
+    kpi(sum.UsuariosComE5 || 0, "Usuarios com E5") +
+    kpi(sum.LicencasE5Disponiveis || 0, "Licencas E5 nao atribuidas") +
+    kpi(sum.LicencasE5Ociosas || 0, "Licencas E5 em contas desabilitadas") +
+    kpi(sum.WorkloadsNaoImplantados || 0, "Workloads pagos e nao usados") +
+    kpi(sum.UsuariosSemMfa || 0, "Usuarios sem MFA") +
+    kpi(sum.DispositivosOnboarded || 0, "Dispositivos no Defender") +
+    kpi((sum.SecureScorePct || "-") + (sum.SecureScorePct ? "%" : ""), "Secure Score");
+
+  const pilares = {};
+  wl.forEach(w => {
+    if (w.EvidenciaDisponivel !== "True" || num(w.Entitled) === 0) return;
+    (pilares[w.Pilar] = pilares[w.Pilar] || []).push(num(w.PctAdocao));
+  });
+  document.getElementById("gauges").innerHTML = Object.keys(pilares).map(p => {
+    const arr = pilares[p], m = arr.reduce((a, b) => a + b, 0) / arr.length;
+    return "<div>" + donut(m, corPct(m, true)) + '<div class="lbl">' + esc(p) + " (" + arr.length + " workloads)</div></div>";
+  }).join("") || '<div class="lbl">Sem workloads com evidencia coletada.</div>';
+
+  const tb = document.querySelector("#tblWl tbody");
+  tb.innerHTML = wl.map(w => {
+    const ok = w.EvidenciaDisponivel === "True", p = num(w.PctAdocao), cor = corPct(p, ok);
+    return "<tr><td><b>" + esc(w.Workload) + "</b></td><td>" + esc(w.Pilar) + '</td>' +
+      '<td class="num">' + esc(w.Entitled) + '</td><td class="num">' + esc(w.Coberto || "-") + '</td>' +
+      '<td class="num">' + esc(w.Gap || "-") + "</td>" +
+      '<td><div class="bar"><i style="width:' + (ok ? p : 0) + "%;background:" + cor + '"></i></div>' +
+      '<span style="font-size:.72rem;color:var(--txt2)">' + (ok ? p + "%" : "sem evidencia") + "</span></td>" +
+      '<td><span class="pill" style="background:' + cor + '">' + esc(w.Maturidade) + "</span></td>" +
+      '<td style="color:var(--txt2);font-size:.78rem">' + esc(w.Detalhe || w.Evidencia) + "</td></tr>";
+  }).join("");
+
+  if (data["01_SKUs_Tenant.csv"] && data["01_SKUs_Tenant.csv"].rows.length) {
+    document.getElementById("secSku").classList.remove("hide");
+    document.querySelector("#tblSku tbody").innerHTML = data["01_SKUs_Tenant.csv"].rows
+      .sort((a, b) => num(b.Comprados) - num(a.Comprados)).map(s => {
+        const p = num(s.PctUso);
+        return "<tr><td>" + esc(s.SkuPartNumber) + "</td><td>" + (s.EhE5 === "True" ? "sim" : "") + '</td>' +
+          '<td class="num">' + esc(s.Comprados) + '</td><td class="num">' + esc(s.Consumidos) + '</td>' +
+          '<td class="num">' + esc(s.Disponiveis) + '</td>' +
+          '<td><div class="bar"><i style="width:' + Math.min(100, p) + '%;background:var(--brand)"></i></div>' +
+          '<span style="font-size:.72rem;color:var(--txt2)">' + p + "%</span></td></tr>";
+      }).join("");
+  }
+
+  if (data["09_Recomendacoes.csv"] && data["09_Recomendacoes.csv"].rows.length) {
+    document.getElementById("secRec").classList.remove("hide");
+    const cores = { "1": "var(--bad)", "2": "var(--mid)", "3": "var(--warn)", "4": "var(--none)" };
+    document.getElementById("recs").innerHTML = data["09_Recomendacoes.csv"].rows
+      .sort((a, b) => num(a.Prioridade) - num(b.Prioridade)).map(r =>
+        '<div class="rec" style="border-left-color:' + (cores[r.Prioridade] || "var(--none)") + '">' +
+        "<b>" + esc(r.Workload) + " - " + esc(r.Achado) + "</b>" +
+        "<span>" + esc(r.Recomendacao) + " &middot; impacto " + esc(r.Impacto) + " &middot; esforco " + esc(r.Esforco) + "</span></div>"
+      ).join("");
+  }
+
+  if (data["07_SecureScore.csv"] && data["07_SecureScore.csv"].rows.length) {
+    document.getElementById("secScore").classList.remove("hide");
+    const rows = data["07_SecureScore.csv"].rows;
+    document.getElementById("scoreSub").textContent = rows[0].ScoreAtual + " de " + rows[0].ScoreMaximo + " pontos";
+    document.querySelector("#tblScore tbody").innerHTML = rows.slice(0, 300).map(c =>
+      "<tr><td>" + esc(c.Controle) + "</td><td>" + esc(c.Categoria) + "</td><td>" + esc(c.Estado) + '</td><td class="num">' + esc(c.Pontos) + "</td></tr>"
+    ).join("");
+  }
+
+  if (data["04d_Alertas.csv"] && data["04d_Alertas.csv"].rows.length) {
+    document.getElementById("secAl").classList.remove("hide");
+    const rows = data["04d_Alertas.csv"].rows, max = Math.max.apply(null, rows.map(r => num(r.Alertas)));
+    document.getElementById("alerts").innerHTML = rows.sort((a, b) => num(b.Alertas) - num(a.Alertas)).map(r =>
+      '<div style="display:flex;align-items:center;gap:.8rem;margin-bottom:.45rem">' +
+      '<span style="width:230px;font-size:.82rem">' + esc(r.Produto) + "</span>" +
+      '<div class="bar" style="flex:1"><i style="width:' + (num(r.Alertas) / max * 100) + '%;background:var(--brand)"></i></div>' +
+      '<span class="num" style="width:70px;font-size:.82rem">' + esc(r.Alertas) + "</span></div>"
+    ).join("");
+  }
+
+  if (data["08_Cobertura_PorUsuario.csv"] && data["08_Cobertura_PorUsuario.csv"].rows.length) buildUsers();
+
+  document.getElementById("report").classList.remove("hide");
+  document.getElementById("btnPrint").disabled = false;
+  document.getElementById("foot").textContent =
+    "Assessment executado em " + (sum.DataExecucao || "-") + " | tenant " + (sum.TenantId || "-") +
+    " | " + (sum.TotalUsuarios || 0) + " usuarios analisados" + (sum.Anonimizado === "True" ? " | dados anonimizados" : "");
+  document.getElementById("secKpis").scrollIntoView({ behavior: "smooth" });
+}
+
+let usrState = { cols: [], rows: [], limite: 200 };
+function buildUsers() {
+  const d = data["08_Cobertura_PorUsuario.csv"];
+  const fixas = ["Upn", "DisplayName", "Habilitado", "TemE5"];
+  const wlCols = d.cols.filter(c => fixas.indexOf(c) === -1);
+  usrState.cols = d.cols;
+  usrState.rows = d.rows;
+  document.getElementById("secUsr").classList.remove("hide");
+  const sel = document.getElementById("fltWl");
+  sel.innerHTML = '<option value="">Todos os workloads</option>' +
+    wlCols.map(c => '<option value="' + esc(c) + '">' + esc(c.replace(/_/g, " ")) + "</option>").join("");
+  document.querySelector("#tblUsr thead").innerHTML = "<tr>" + d.cols.map(c => "<th>" + esc(c.replace(/_/g, " ")) + "</th>").join("") + "</tr>";
+  ["fltUsr", "fltWl", "fltSt", "fltE5"].forEach(id =>
+    document.getElementById(id).addEventListener("input", () => { usrState.limite = 200; drawUsers(); }));
+  document.getElementById("btnMais").onclick = () => { usrState.limite += 200; drawUsers(); };
+  drawUsers();
+}
+function drawUsers() {
+  const txt = document.getElementById("fltUsr").value.toLowerCase();
+  const wcol = document.getElementById("fltWl").value;
+  const st = document.getElementById("fltSt").value;
+  const e5 = document.getElementById("fltE5").value;
+  const filtradas = usrState.rows.filter(r => {
+    if (txt && (r.Upn + " " + r.DisplayName).toLowerCase().indexOf(txt) === -1) return false;
+    if (e5 && r.TemE5 !== e5) return false;
+    if (st) {
+      if (wcol) { if (r[wcol] !== st) return false; }
+      else if (!usrState.cols.some(c => r[c] === st)) return false;
+    }
+    return true;
+  });
+  const cores = { Coberto: "var(--ok)", NaoCoberto: "var(--bad)", NaoLicenciado: "var(--none)", SemEvidencia: "var(--warn)" };
+  document.querySelector("#tblUsr tbody").innerHTML = filtradas.slice(0, usrState.limite).map(r =>
+    "<tr>" + usrState.cols.map(c => {
+      const v = r[c];
+      if (cores[v]) return '<td><span class="pill" style="background:' + cores[v] + '">' + esc(v) + "</span></td>";
+      return "<td>" + esc(v) + "</td>";
+    }).join("") + "</tr>"
+  ).join("");
+  document.getElementById("usrCount").textContent =
+    "exibindo " + Math.min(usrState.limite, filtradas.length) + " de " + filtradas.length + " usuarios";
+  document.getElementById("btnMais").style.display = filtradas.length > usrState.limite ? "" : "none";
+}
+refreshChips();
+</script>
+</body>
+</html>
