@@ -175,7 +175,13 @@ Se alguma faltar, o script registra o workload como `Sem evidencia` e continua �
 
 ## Como executar
 
-1. Abra `Invoke-M365E5Assessment.ps1` e edite o bloco `CONFIGURACAO` no topo:
+1. Se baixou o `.zip` do GitHub, o Windows marca os arquivos como bloqueados. Desbloqueie antes:
+
+```powershell
+Get-ChildItem -Recurse | Unblock-File
+```
+
+2. Abra `Invoke-M365E5Assessment.ps1` e edite o bloco `CONFIGURACAO` no topo:
 
 ```powershell
 $AdminUPN            = 'admin@seutenant.onmicrosoft.com'   # obrigatorio
@@ -195,10 +201,10 @@ $InstalarModulos     = $true
 $AuthGraph           = 'Auto'    # Auto | DeviceCode | Modulo (ver Troubleshooting)
 ```
 
-2. Selecione o arquivo inteiro, copie e cole no PowerShell. Serão solicitados até três logins:
-   Microsoft Graph, Exchange Online e Security & Compliance.
-3. Ao final o console imprime o scorecard e o caminho da pasta gerada.
-4. Abra `E5-Assessment-Dashboard.html` no navegador, clique em **Selecionar pasta** e aponte para
+3. Selecione o arquivo inteiro e cole no PowerShell, ou execute `.\Invoke-M365E5Assessment.ps1`.
+   Serão solicitados até três logins: Microsoft Graph, Exchange Online e Security & Compliance.
+4. Ao final o console imprime o scorecard e o caminho da pasta gerada.
+5. Abra `E5-Assessment-Dashboard.html` no navegador, clique em **Selecionar pasta** e aponte para
    a pasta do assessment. Use **Imprimir / PDF** para gerar o entregável.
 
 ### Teste rápido antes do run completo

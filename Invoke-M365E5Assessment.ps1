@@ -147,6 +147,26 @@ function Save-CsvRel {
     }
 }
 # ------------------------------------------------------------------- Graph ---
+function Get-DetalheErroWeb {
+    param($Erro)
+    $ed = $Erro.PSObject.Properties['ErrorDetails']
+    if ($ed -and $ed.Value -and $ed.Value.Message) { return [string]$ed.Value.Message }
+    $resp = $null
+    $ex = $Erro.Exception
+    if ($ex) { $resp = $ex.PSObject.Properties['Response'] }
+    if ($resp -and $resp.Value) {
+        try {
+            $fluxo = $resp.Value.GetResponseStream()
+            $leitor = New-Object System.IO.StreamReader($fluxo)
+            $texto = $leitor.ReadToEnd()
+            $leitor.Dispose()
+            if ($texto) { return $texto }
+        }
+        catch { }
+    }
+    if ($ex) { return [string]$ex.Message }
+    return [string]$Erro
+}
 function Set-GraphToken {
     param($Resposta)
     $script:GraphToken = [string](Get-Prop -Obj $Resposta -Nome 'access_token')
@@ -157,48 +177,64 @@ function Set-GraphToken {
 }
 function Connect-GraphDeviceCode {
     param([string[]]$Escopos)
-    $autoridade = 'organizations'
-    if ($AdminUPN -and $AdminUPN -like '*@*') { $autoridade = ($AdminUPN -split '@')[1] }
     $script:GraphAppId = '14d82eec-204b-4c2f-b7e8-296a70dab67e'
-    $script:GraphTokenUrl = 'https://login.microsoftonline.com/' + $autoridade + '/oauth2/v2.0/token'
     $lista = New-Object System.Collections.ArrayList
     foreach ($e in $Escopos) { [void]$lista.Add('https://graph.microsoft.com/' + $e) }
     [void]$lista.Add('offline_access')
     $script:GraphEscopoStr = ($lista -join ' ')
-    $urlDevice = 'https://login.microsoftonline.com/' + $autoridade + '/oauth2/v2.0/devicecode'
-    $inicio = Invoke-RestMethod -Method POST -Uri $urlDevice -Body @{ client_id = $script:GraphAppId; scope = $script:GraphEscopoStr } -ErrorAction Stop
-    Write-Host ''
-    Write-Host '  ================= AUTENTICACAO POR CODIGO =================' -ForegroundColor Yellow
-    Write-Host ('  1. Abra: ' + [string](Get-Prop -Obj $inicio -Nome 'verification_uri')) -ForegroundColor Yellow
-    Write-Host ('  2. Informe o codigo: ' + [string](Get-Prop -Obj $inicio -Nome 'user_code')) -ForegroundColor Cyan
-    Write-Host ('  3. Entre com ' + $AdminUPN) -ForegroundColor Yellow
-    Write-Host '  ===========================================================' -ForegroundColor Yellow
-    Write-Host ''
-    $intervalo = [int](Get-Prop -Obj $inicio -Nome 'interval' -Padrao 5)
-    $limite = (Get-Date).AddSeconds([int](Get-Prop -Obj $inicio -Nome 'expires_in' -Padrao 900))
-    $codigo = [string](Get-Prop -Obj $inicio -Nome 'device_code')
-    while ((Get-Date) -lt $limite) {
-        Start-Sleep -Seconds $intervalo
+    $autoridades = New-Object System.Collections.ArrayList
+    if ($AdminUPN -and $AdminUPN -like '*@*') { [void]$autoridades.Add((($AdminUPN -split '@')[1]).Trim()) }
+    [void]$autoridades.Add('organizations')
+    foreach ($autoridade in $autoridades) {
+        $urlDevice = 'https://login.microsoftonline.com/' + $autoridade + '/oauth2/v2.0/devicecode'
+        $inicio = $null
         try {
-            $corpo = @{ grant_type = 'urn:ietf:params:oauth:grant-type:device_code'; client_id = $script:GraphAppId; device_code = $codigo }
-            $tok = Invoke-RestMethod -Method POST -Uri $script:GraphTokenUrl -Body $corpo -ErrorAction Stop
-            Set-GraphToken -Resposta $tok
-            Write-Ok 'Token do Graph obtido por device code.'
-            return $true
+            $inicio = Invoke-RestMethod -Method POST -Uri $urlDevice -Body @{ client_id = $script:GraphAppId; scope = $script:GraphEscopoStr } -ErrorAction Stop
         }
         catch {
-            $detalhe = ''
-            $ed = $_.PSObject.Properties['ErrorDetails']
-            if ($ed -and $ed.Value) { $detalhe = [string]$ed.Value.Message }
-            if ($detalhe -match 'authorization_pending' -or $detalhe -match 'slow_down' -or -not $detalhe) {
-                if ($detalhe -match 'slow_down') { $intervalo = $intervalo + 5 }
-                continue
-            }
-            Write-Falha ('Autenticacao por device code falhou: ' + $detalhe)
-            return $false
+            $detalhe = Get-DetalheErroWeb -Erro $_
+            Write-Aviso ('Nao foi possivel iniciar o device code em ' + $autoridade + ': ' + $detalhe)
+            continue
         }
+        $codigo = [string](Get-Prop -Obj $inicio -Nome 'device_code')
+        $userCode = [string](Get-Prop -Obj $inicio -Nome 'user_code')
+        if (-not $codigo -or -not $userCode) {
+            Write-Aviso ('Resposta inesperada do endpoint de device code em ' + $autoridade + '.')
+            continue
+        }
+        $url = [string](Get-Prop -Obj $inicio -Nome 'verification_uri')
+        if (-not $url) { $url = 'https://microsoft.com/devicelogin' }
+        $script:GraphTokenUrl = 'https://login.microsoftonline.com/' + $autoridade + '/oauth2/v2.0/token'
+        Write-Host ''
+        Write-Host '  ================= AUTENTICACAO POR CODIGO =================' -ForegroundColor Yellow
+        Write-Host ('  1. Abra: ' + $url) -ForegroundColor Yellow
+        Write-Host ('  2. Informe o codigo: ' + $userCode) -ForegroundColor Cyan
+        Write-Host ('  3. Entre com ' + $AdminUPN) -ForegroundColor Yellow
+        Write-Host '  ===========================================================' -ForegroundColor Yellow
+        Write-Host ''
+        $intervalo = [int](Get-Prop -Obj $inicio -Nome 'interval' -Padrao 5)
+        $limite = (Get-Date).AddSeconds([int](Get-Prop -Obj $inicio -Nome 'expires_in' -Padrao 900))
+        while ((Get-Date) -lt $limite) {
+            Start-Sleep -Seconds $intervalo
+            try {
+                $corpo = @{ grant_type = 'urn:ietf:params:oauth:grant-type:device_code'; client_id = $script:GraphAppId; device_code = $codigo }
+                $tok = Invoke-RestMethod -Method POST -Uri $script:GraphTokenUrl -Body $corpo -ErrorAction Stop
+                Set-GraphToken -Resposta $tok
+                Write-Ok 'Token do Graph obtido por device code.'
+                return $true
+            }
+            catch {
+                $detalhe = Get-DetalheErroWeb -Erro $_
+                if ($detalhe -match 'slow_down') { $intervalo = $intervalo + 5; continue }
+                if ($detalhe -match 'authorization_pending' -or -not $detalhe) { continue }
+                Write-Falha ('Autenticacao por device code falhou: ' + $detalhe)
+                return $false
+            }
+        }
+        Write-Falha 'Tempo esgotado aguardando a autenticacao por device code.'
+        return $false
     }
-    Write-Falha 'Tempo esgotado aguardando a autenticacao por device code.'
+    Write-Falha 'Nenhuma autoridade do Entra ID aceitou a solicitacao de device code. Confirme o $AdminUPN.'
     return $false
 }
 function Get-GraphToken {
@@ -438,6 +474,18 @@ function Resolve-EscopoAccessReview {
 # ================================================================= FASE 0 ====
 function Initialize-Ambiente {
     Write-Etapa 'Fase 0 - Pre-flight e conexoes'
+    if ((-not $AdminUPN) -or ($AdminUPN -notlike '*@*') -or ($AdminUPN -like '*seutenant*')) {
+        Write-Aviso 'A variavel $AdminUPN ainda esta com o valor de exemplo do bloco CONFIGURACAO.'
+        $informado = Read-Host '  Informe o UPN do administrador (ex.: admin@contoso.onmicrosoft.com)'
+        if ($informado -and $informado -like '*@*') {
+            $script:AdminUPN = $informado.Trim()
+            Write-Info ('Usando ' + $script:AdminUPN)
+        }
+        else {
+            Write-Falha 'UPN invalido. Edite $AdminUPN no bloco CONFIGURACAO e execute novamente.'
+            return $false
+        }
+    }
     $destino = $OutputFolder
     if (-not $destino) {
         $raiz = $PSScriptRoot
