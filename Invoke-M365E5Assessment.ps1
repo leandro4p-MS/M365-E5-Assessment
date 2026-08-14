@@ -172,10 +172,14 @@ function Invoke-GraphPaged {
     $itens = New-Object System.Collections.ArrayList
     $proximo = $Uri
     $paginas = 0
+    $script:UltimaChamadaOk = $true
     while ($proximo) {
         $paginas++
         $r = Invoke-GraphGet -Uri $proximo -Silencioso:$Silencioso
-        if ($null -eq $r) { break }
+        if ($null -eq $r) {
+            if ($paginas -eq 1) { $script:UltimaChamadaOk = $false }
+            break
+        }
         $marcador = [object]'__sem_valor__'
         $valor = Get-Prop -Obj $r -Nome 'value' -Padrao $marcador
         if ([object]::ReferenceEquals($valor, $marcador)) { [void]$itens.Add($r); break }
@@ -311,6 +315,44 @@ function Resolve-EscopoCA {
     foreach ($i in $excG) { foreach ($m in @(Get-MembrosGrupo -GrupoId ([string]$i))) { [void]$set.Remove($m) } }
     return $set
 }
+function Resolve-EscopoAccessReview {
+    param($Definicao)
+    $set = @{}
+    $escopo = Get-Prop -Obj $Definicao -Nome 'scope' -Padrao $null
+    $consulta = [string](Get-Prop -Obj $escopo -Nome 'query')
+    if ($consulta) {
+        $mg = [regex]::Match($consulta, '/groups/([0-9A-Fa-f-]{36})')
+        if ($mg.Success) {
+            foreach ($u in @(Get-MembrosGrupo -GrupoId $mg.Groups[1].Value)) { $set[$u] = $true }
+            return $set
+        }
+        $mr = [regex]::Match($consulta, "roleDefinitionId eq '([0-9A-Fa-f-]{36})'")
+        if ($mr.Success) {
+            $chave = $mr.Groups[1].Value.ToLower()
+            if ($script:MembrosPorRole.ContainsKey($chave)) {
+                foreach ($u in $script:MembrosPorRole[$chave]) { $set[$u] = $true }
+            }
+            return $set
+        }
+        if ($consulta -match '/users') {
+            foreach ($u in $script:Usuarios.Keys) { $set[$u] = $true }
+            return $set
+        }
+    }
+    $id = [string](Get-Prop -Obj $Definicao -Nome 'id')
+    if (-not $id) { return $set }
+    $inst = @(Invoke-GraphPaged -Uri ('https://graph.microsoft.com/v1.0/identityGovernance/accessReviews/definitions/' + $id + '/instances?$top=5') -Silencioso)
+    if ($inst.Count -eq 0) { return $set }
+    $iid = [string](Get-Prop -Obj $inst[0] -Nome 'id')
+    if (-not $iid) { return $set }
+    $decisoes = @(Invoke-GraphPaged -Uri ('https://graph.microsoft.com/v1.0/identityGovernance/accessReviews/definitions/' + $id + '/instances/' + $iid + '/decisions?$top=500') -MaxItens 2000 -Silencioso)
+    foreach ($d in $decisoes) {
+        $pr = Get-Prop -Obj $d -Nome 'principal' -Padrao $null
+        $u = ([string](Get-Prop -Obj $pr -Nome 'userPrincipalName')).ToLower()
+        if ($u) { $set[$u] = $true }
+    }
+    return $set
+}
 # ================================================================= FASE 0 ====
 function Initialize-Ambiente {
     Write-Etapa 'Fase 0 - Pre-flight e conexoes'
@@ -334,6 +376,7 @@ function Initialize-Ambiente {
     $script:SkuNomePorId    = @{}
     $script:E5Skus          = @()
     $script:SecureScorePct  = ''
+    $script:UltimaChamadaOk = $true
     $script:ExoOk           = $false
     $script:IppsOk          = $false
     New-Item -ItemType Directory -Path $script:PastaSaida -Force | Out-Null
@@ -658,6 +701,7 @@ function Get-DadosEntra {
         })
     }
     $eleg = Invoke-GraphPaged -Uri 'https://graph.microsoft.com/v1.0/roleManagement/directory/roleEligibilityScheduleInstances?$expand=roleDefinition,principal&$top=500' -Silencioso
+    $okPim = $script:UltimaChamadaOk
     $upnsPim = @{}
     foreach ($e in @($eleg)) {
         $rd = Get-Prop -Obj $e -Nome 'roleDefinition' -Padrao $null
@@ -675,6 +719,7 @@ function Get-DadosEntra {
     }
     Save-CsvRel -Dados $linhasPim.ToArray() -Arquivo '03c_PIM.csv'
     $caPols = Invoke-GraphPaged -Uri 'https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies'
+    $okCa = $script:UltimaChamadaOk
     $linhasCa = New-Object System.Collections.ArrayList
     $cobP1 = @{}
     $cobP2 = @{}
@@ -702,13 +747,13 @@ function Get-DadosEntra {
             CriadaEm        = [string](Get-Prop -Obj $p -Nome 'createdDateTime')
         })
     }
+    $usuariosCaRisco = $cobP2.Count
     foreach ($u in $upnsPim.Keys) { $cobP2[$u] = $true }
     Save-CsvRel -Dados $linhasCa.ToArray() -Arquivo '03_CA_Policies.csv'
     Set-Cobertura -Workload 'Entra ID P1' -Upns @($cobP1.Keys)
-    Set-Evidencia -Workload 'Entra ID P1' -Disponivel (@($caPols).Count -gt 0) -Detalhe ('Politicas de Acesso Condicional habilitadas: ' + (@($linhasCa.ToArray() | Where-Object { $_.Estado -eq 'enabled' }).Count))
-    Set-Cobertura -Workload 'Entra ID P2' -Upns @($cobP2.Keys)
-    Set-Evidencia -Workload 'Entra ID P2' -Disponivel $true -Detalhe ('CA baseada em risco + ' + $upnsPim.Count + ' principais elegiveis no PIM')
+    Set-Evidencia -Workload 'Entra ID P1' -Disponivel $okCa -Detalhe ('Politicas de Acesso Condicional habilitadas: ' + (@($linhasCa.ToArray() | Where-Object { $_.Estado -eq 'enabled' }).Count))
     $mfa = Invoke-GraphPaged -Uri 'https://graph.microsoft.com/v1.0/reports/authenticationMethods/userRegistrationDetails?$top=500' -Silencioso
+    $okMfa = $script:UltimaChamadaOk
     $linhasMfa = New-Object System.Collections.ArrayList
     $cobMfa = @{}
     foreach ($m in @($mfa)) {
@@ -728,15 +773,19 @@ function Get-DadosEntra {
     }
     Save-CsvRel -Dados $linhasMfa.ToArray() -Arquivo '03b_MFA_Usuarios.csv'
     Set-Cobertura -Workload 'MFA / Autenticacao forte' -Upns @($cobMfa.Keys)
-    Set-Evidencia -Workload 'MFA / Autenticacao forte' -Disponivel (@($mfa).Count -gt 0) -Detalhe 'Relatorio de registro de metodos de autenticacao'
+    Set-Evidencia -Workload 'MFA / Autenticacao forte' -Disponivel $okMfa -Detalhe 'Relatorio de registro de metodos de autenticacao'
     $script:AdminsSemMfa = @($linhasMfa.ToArray() | Where-Object { $_.EhAdmin -and -not $_.MfaCapaz }).Count
     $script:UsuariosSemMfa = @($script:Usuarios.Keys | Where-Object { -not $cobMfa.ContainsKey($_) }).Count
     $desde = (Get-Date).AddDays(-$DiasPeriodo).ToString('yyyy-MM-ddTHH:mm:ssZ')
     $risky = Invoke-GraphPaged -Uri 'https://graph.microsoft.com/v1.0/identityProtection/riskyUsers?$top=500' -Silencioso
+    $okIp = $script:UltimaChamadaOk
+    $cobIp = @{}
     $linhasRisco = New-Object System.Collections.ArrayList
     foreach ($r in @($risky)) {
+        $upn = ([string](Get-Prop -Obj $r -Nome 'userPrincipalName')).ToLower()
+        if ($upn) { $cobIp[$upn] = $true }
         [void]$linhasRisco.Add([PSCustomObject]@{
-            Upn           = (Get-UpnSaida -Upn ([string](Get-Prop -Obj $r -Nome 'userPrincipalName')))
+            Upn           = (Get-UpnSaida -Upn $upn)
             NivelRisco    = [string](Get-Prop -Obj $r -Nome 'riskLevel')
             EstadoRisco   = [string](Get-Prop -Obj $r -Nome 'riskState')
             Detalhe       = [string](Get-Prop -Obj $r -Nome 'riskDetail')
@@ -744,20 +793,44 @@ function Get-DadosEntra {
         })
     }
     $deteccoes = Invoke-GraphPaged -Uri ('https://graph.microsoft.com/v1.0/identityProtection/riskDetections?$filter=detectedDateTime%20ge%20' + $desde + '&$top=500') -Silencioso
+    if ($script:UltimaChamadaOk) { $okIp = $true }
+    foreach ($d in @($deteccoes)) {
+        $upn = ([string](Get-Prop -Obj $d -Nome 'userPrincipalName')).ToLower()
+        if ($upn) { $cobIp[$upn] = $true }
+    }
     $script:RiskDetections = @($deteccoes).Count
     Save-CsvRel -Dados $linhasRisco.ToArray() -Arquivo '03d_IdentityProtection.csv'
     $revisoes = Invoke-GraphPaged -Uri 'https://graph.microsoft.com/v1.0/identityGovernance/accessReviews/definitions?$top=100' -Silencioso
+    $okAr = $script:UltimaChamadaOk
+    $cobAr = @{}
     $linhasRev = New-Object System.Collections.ArrayList
     foreach ($r in @($revisoes)) {
+        $escopoRev = Resolve-EscopoAccessReview -Definicao $r
+        $status = [string](Get-Prop -Obj $r -Nome 'status')
+        if ($status -ne 'Completed' -and $status -ne 'Applied') {
+            foreach ($u in $escopoRev.Keys) { $cobAr[$u] = $true }
+        }
         [void]$linhasRev.Add([PSCustomObject]@{
             Nome       = [string](Get-Prop -Obj $r -Nome 'displayName')
-            Status     = [string](Get-Prop -Obj $r -Nome 'status')
+            Status     = $status
+            UsuariosNoEscopo = $escopoRev.Count
             CriadaEm   = [string](Get-Prop -Obj $r -Nome 'createdDateTime')
             Descricao  = [string](Get-Prop -Obj $r -Nome 'descriptionForAdmins')
         })
     }
     Save-CsvRel -Dados $linhasRev.ToArray() -Arquivo '03e_AccessReviews.csv'
     $script:AccessReviews = @($revisoes).Count
+    foreach ($u in $cobIp.Keys) { $cobP2[$u] = $true }
+    foreach ($u in $cobAr.Keys) { $cobP2[$u] = $true }
+    Set-Cobertura -Workload 'Entra ID P2' -Upns @($cobP2.Keys)
+    $fontesP2 = New-Object System.Collections.ArrayList
+    if ($okCa)  { [void]$fontesP2.Add('CA baseada em risco: ' + $usuariosCaRisco) }
+    if ($okPim) { [void]$fontesP2.Add('elegiveis no PIM: ' + $upnsPim.Count) }
+    if ($okIp)  { [void]$fontesP2.Add('Identity Protection: ' + $cobIp.Count) }
+    if ($okAr)  { [void]$fontesP2.Add('Access Reviews ativas: ' + $cobAr.Count) }
+    $detalheP2 = 'Nenhuma fonte de evidencia de P2 pode ser consultada'
+    if ($fontesP2.Count -gt 0) { $detalheP2 = 'Usuarios por fonte - ' + ($fontesP2 -join '; ') }
+    Set-Evidencia -Workload 'Entra ID P2' -Disponivel ($okCa -or $okPim -or $okIp -or $okAr) -Detalhe $detalheP2
     $script:TotalAdmins = $adminsUpn.Count
     $script:AdminsComPim = $upnsPim.Count
 }
@@ -1407,7 +1480,7 @@ function New-Cobertura {
 # =========================================================== ORQUESTRADOR ====
 $script:Catalogo = @(
     @{ Nome = 'Entra ID P1'; Pilar = 'Identidade'; Planos = @('AAD_PREMIUM'); Evidencia = 'Usuario no escopo de pelo menos uma politica de Acesso Condicional habilitada' },
-    @{ Nome = 'Entra ID P2'; Pilar = 'Identidade'; Planos = @('AAD_PREMIUM_P2'); Evidencia = 'Usuario protegido por CA baseada em risco ou elegivel via PIM' },
+    @{ Nome = 'Entra ID P2'; Pilar = 'Identidade'; Planos = @('AAD_PREMIUM_P2'); Evidencia = 'Usuario coberto por CA baseada em risco, elegivel via PIM, avaliado pelo Identity Protection ou no escopo de Access Review ativa' },
     @{ Nome = 'MFA / Autenticacao forte'; Pilar = 'Identidade'; Planos = @('AAD_PREMIUM', 'AAD_PREMIUM_P2'); Evidencia = 'Usuario com metodo de MFA registrado' },
     @{ Nome = 'Defender for Endpoint P2'; Pilar = 'Defender'; Planos = @('WINDEFATP'); Evidencia = 'Usuario com logon em dispositivo onboarded no MDE' },
     @{ Nome = 'Defender for Office 365 P2'; Pilar = 'Defender'; Planos = @('THREAT_INTELLIGENCE'); Evidencia = 'Usuario no escopo de Safe Links / Safe Attachments / Anti-phishing' },

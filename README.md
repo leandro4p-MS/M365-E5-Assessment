@@ -233,6 +233,24 @@ Para cada workload existe uma evidência concreta, nunca uma suposição:
   Communication Compliance, eDiscovery Premium, Audit Premium, Information Barriers, Customer
   Lockbox) são avaliados como ativo ou inativo, e a coluna `Detalhe` explica a base usada.
 
+Alguns workloads combinam mais de uma fonte. **Entra ID P2**, por exemplo, considera coberto o
+usuário que atende a qualquer um destes quatro critérios, porque o P2 se paga em várias frentes:
+
+| Fonte | Evidência |
+|---|---|
+| Acesso Condicional | Estar no escopo de política habilitada com `userRiskLevels` ou `signInRiskLevels` |
+| PIM | Ter atribuição **elegível** de role (atribuição permanente não conta, pois não usa o P2) |
+| Identity Protection | Aparecer em `riskyUsers` ou ter detecção de risco no período |
+| Access Reviews | Estar no escopo de uma revisão de acesso ainda ativa |
+
+A coluna `Detalhe` do `08b_Cobertura_PorWorkload.csv` mostra quantos usuários vieram de cada
+fonte, o que permite ver de onde a adoção está vindo.
+
+**Evidência disponível vs. adoção zero.** Cada chamada ao Graph registra se realmente teve
+sucesso. Se todas as fontes de um workload falharem — por falta de permissão, por exemplo — ele
+é marcado como `Sem evidencia` e fica fora do score, em vez de ser reportado como adoção zero.
+Basta uma fonte responder para o workload voltar a ser avaliado.
+
 **3. Gap e maturidade.**
 
 | % de adoção | Maturidade |
@@ -255,7 +273,7 @@ zero — assim uma permissão faltando não distorce o resultado para baixo.
 | Pilar | Workload | Service plan | Evidência de cobertura |
 |---|---|---|---|
 | Identidade | Entra ID P1 | `AAD_PREMIUM` | Usuário no escopo de CA habilitada |
-| Identidade | Entra ID P2 | `AAD_PREMIUM_P2` | CA baseada em risco ou elegibilidade PIM |
+| Identidade | Entra ID P2 | `AAD_PREMIUM_P2` | CA de risco, elegibilidade PIM, Identity Protection ou Access Review ativa |
 | Identidade | MFA | `AAD_PREMIUM*` | Método de MFA registrado |
 | Defender | Defender for Endpoint P2 | `WINDEFATP` | Logon em dispositivo onboarded (Advanced Hunting) |
 | Defender | Defender for Office 365 P2 | `THREAT_INTELLIGENCE` | Escopo de Safe Links / Safe Attachments / Anti-phishing |
