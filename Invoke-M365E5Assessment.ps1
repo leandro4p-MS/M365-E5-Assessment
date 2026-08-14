@@ -40,6 +40,9 @@ $SkipExchange        = $false
 $SkipExcel           = $false
 $Anonimizar          = $false
 $InstalarModulos     = $true
+# Auth do Graph: 'Auto' usa o modulo Microsoft.Graph.Authentication e cai para device code se ele falhar.
+# 'DeviceCode' ignora o modulo e usa HTTP puro (imune a conflito de assembly). 'Modulo' forca o modulo.
+$AuthGraph           = 'Auto'
 # ########################## FIM DA CONFIGURACAO ###############################
 #
 $ErrorActionPreference = 'Continue'
@@ -144,12 +147,84 @@ function Save-CsvRel {
     }
 }
 # ------------------------------------------------------------------- Graph ---
+function Set-GraphToken {
+    param($Resposta)
+    $script:GraphToken = [string](Get-Prop -Obj $Resposta -Nome 'access_token')
+    $expira = [int](Get-Prop -Obj $Resposta -Nome 'expires_in' -Padrao 3600)
+    $script:GraphTokenExp = (Get-Date).AddSeconds($expira)
+    $rt = [string](Get-Prop -Obj $Resposta -Nome 'refresh_token')
+    if ($rt) { $script:GraphRefresh = $rt }
+}
+function Connect-GraphDeviceCode {
+    param([string[]]$Escopos)
+    $autoridade = 'organizations'
+    if ($AdminUPN -and $AdminUPN -like '*@*') { $autoridade = ($AdminUPN -split '@')[1] }
+    $script:GraphAppId = '14d82eec-204b-4c2f-b7e8-296a70dab67e'
+    $script:GraphTokenUrl = 'https://login.microsoftonline.com/' + $autoridade + '/oauth2/v2.0/token'
+    $lista = New-Object System.Collections.ArrayList
+    foreach ($e in $Escopos) { [void]$lista.Add('https://graph.microsoft.com/' + $e) }
+    [void]$lista.Add('offline_access')
+    $script:GraphEscopoStr = ($lista -join ' ')
+    $urlDevice = 'https://login.microsoftonline.com/' + $autoridade + '/oauth2/v2.0/devicecode'
+    $inicio = Invoke-RestMethod -Method POST -Uri $urlDevice -Body @{ client_id = $script:GraphAppId; scope = $script:GraphEscopoStr } -ErrorAction Stop
+    Write-Host ''
+    Write-Host '  ================= AUTENTICACAO POR CODIGO =================' -ForegroundColor Yellow
+    Write-Host ('  1. Abra: ' + [string](Get-Prop -Obj $inicio -Nome 'verification_uri')) -ForegroundColor Yellow
+    Write-Host ('  2. Informe o codigo: ' + [string](Get-Prop -Obj $inicio -Nome 'user_code')) -ForegroundColor Cyan
+    Write-Host ('  3. Entre com ' + $AdminUPN) -ForegroundColor Yellow
+    Write-Host '  ===========================================================' -ForegroundColor Yellow
+    Write-Host ''
+    $intervalo = [int](Get-Prop -Obj $inicio -Nome 'interval' -Padrao 5)
+    $limite = (Get-Date).AddSeconds([int](Get-Prop -Obj $inicio -Nome 'expires_in' -Padrao 900))
+    $codigo = [string](Get-Prop -Obj $inicio -Nome 'device_code')
+    while ((Get-Date) -lt $limite) {
+        Start-Sleep -Seconds $intervalo
+        try {
+            $corpo = @{ grant_type = 'urn:ietf:params:oauth:grant-type:device_code'; client_id = $script:GraphAppId; device_code = $codigo }
+            $tok = Invoke-RestMethod -Method POST -Uri $script:GraphTokenUrl -Body $corpo -ErrorAction Stop
+            Set-GraphToken -Resposta $tok
+            Write-Ok 'Token do Graph obtido por device code.'
+            return $true
+        }
+        catch {
+            $detalhe = ''
+            $ed = $_.PSObject.Properties['ErrorDetails']
+            if ($ed -and $ed.Value) { $detalhe = [string]$ed.Value.Message }
+            if ($detalhe -match 'authorization_pending' -or $detalhe -match 'slow_down' -or -not $detalhe) {
+                if ($detalhe -match 'slow_down') { $intervalo = $intervalo + 5 }
+                continue
+            }
+            Write-Falha ('Autenticacao por device code falhou: ' + $detalhe)
+            return $false
+        }
+    }
+    Write-Falha 'Tempo esgotado aguardando a autenticacao por device code.'
+    return $false
+}
+function Get-GraphToken {
+    if ($script:GraphTokenExp -and (Get-Date) -lt $script:GraphTokenExp.AddMinutes(-5)) { return $script:GraphToken }
+    if ($script:GraphRefresh) {
+        try {
+            $corpo = @{ grant_type = 'refresh_token'; client_id = $script:GraphAppId; refresh_token = $script:GraphRefresh; scope = $script:GraphEscopoStr }
+            $tok = Invoke-RestMethod -Method POST -Uri $script:GraphTokenUrl -Body $corpo -ErrorAction Stop
+            Set-GraphToken -Resposta $tok
+        }
+        catch {
+            Write-Aviso ('Nao foi possivel renovar o token do Graph: ' + $_.Exception.Message)
+        }
+    }
+    return $script:GraphToken
+}
 function Invoke-GraphGet {
     param([string]$Uri, [switch]$Silencioso)
     $tentativa = 0
     while ($tentativa -lt 5) {
         $tentativa++
         try {
+            if ($script:AuthModo -eq 'DeviceCode') {
+                $cab = @{ Authorization = ('Bearer ' + (Get-GraphToken)) }
+                return Invoke-RestMethod -Method GET -Uri $Uri -Headers $cab -ErrorAction Stop
+            }
             return Invoke-MgGraphRequest -Method GET -Uri $Uri -OutputType PSObject -ErrorAction Stop
         }
         catch {
@@ -198,7 +273,14 @@ function Invoke-Hunting {
     if ($SkipHunting) { return $null }
     $corpo = @{ Query = $Consulta } | ConvertTo-Json -Depth 3
     try {
-        $r = Invoke-MgGraphRequest -Method POST -Uri 'https://graph.microsoft.com/v1.0/security/runHuntingQuery' -Body $corpo -ContentType 'application/json' -OutputType PSObject -ErrorAction Stop
+        $endpoint = 'https://graph.microsoft.com/v1.0/security/runHuntingQuery'
+        if ($script:AuthModo -eq 'DeviceCode') {
+            $cab = @{ Authorization = ('Bearer ' + (Get-GraphToken)) }
+            $r = Invoke-RestMethod -Method POST -Uri $endpoint -Headers $cab -Body $corpo -ContentType 'application/json' -ErrorAction Stop
+        }
+        else {
+            $r = Invoke-MgGraphRequest -Method POST -Uri $endpoint -Body $corpo -ContentType 'application/json' -OutputType PSObject -ErrorAction Stop
+        }
         $marcador = [object]'__sem_valor__'
         $res = Get-Prop -Obj $r -Nome 'results' -Padrao $marcador
         if ([object]::ReferenceEquals($res, $marcador)) { return , @() }
@@ -377,13 +459,19 @@ function Initialize-Ambiente {
     $script:E5Skus          = @()
     $script:SecureScorePct  = ''
     $script:UltimaChamadaOk = $true
+    $script:GraphToken      = ''
+    $script:GraphTokenExp   = $null
+    $script:GraphRefresh    = ''
+    $script:AuthModo        = 'Modulo'
+    if ($AuthGraph -eq 'DeviceCode') { $script:AuthModo = 'DeviceCode' }
     $script:ExoOk           = $false
     $script:IppsOk          = $false
     New-Item -ItemType Directory -Path $script:PastaSaida -Force | Out-Null
     $script:PastaSaida = (Resolve-Path $script:PastaSaida).Path
     $script:ArquivoExcel = Join-Path $script:PastaSaida 'M365_E5_Assessment.xlsx'
     Write-Info ('Pasta de saida: ' + $script:PastaSaida)
-    $modulos = @('Microsoft.Graph.Authentication')
+    $modulos = @()
+    if ($script:AuthModo -ne 'DeviceCode') { $modulos += 'Microsoft.Graph.Authentication' }
     if (-not $SkipExchange) { $modulos += 'ExchangeOnlineManagement' }
     if (-not $SkipExcel)    { $modulos += 'ImportExcel' }
     foreach ($m in $modulos) {
@@ -422,12 +510,14 @@ function Initialize-Ambiente {
             catch {
                 $erro = $_.Exception.Message
                 Write-Falha ('Falha ao importar ' + $m + ': ' + $erro)
+                if ($m -eq 'Microsoft.Graph.Authentication' -and $AuthGraph -ne 'Modulo') {
+                    Write-Aviso 'Conflito de assembly do Microsoft.Graph detectado. Trocando para autenticacao por device code (HTTP puro, sem modulo).'
+                    $script:AuthModo = 'DeviceCode'
+                    continue
+                }
                 if ($erro -match 'does not have an implementation' -or $erro -match 'GetTokenAsync' -or $erro -match 'Could not load file or assembly') {
                     Write-Aviso 'Isso e conflito de assembly do Microsoft.Graph (versoes misturadas no disco ou DLL ja carregada nesta sessao).'
-                    Write-Aviso 'Feche TODAS as janelas do PowerShell e, em uma janela nova, execute:'
-                    Write-Aviso '  Get-InstalledModule Microsoft.Graph.Authentication -AllVersions | Uninstall-Module -Force'
-                    Write-Aviso '  Install-Module Microsoft.Graph.Authentication -Scope CurrentUser -Force'
-                    Write-Aviso 'Depois abra outra janela nova e rode o assessment antes de carregar qualquer outro modulo.'
+                    Write-Aviso 'Alternativa imediata: defina $AuthGraph = ''DeviceCode'' no bloco de configuracao.'
                 }
                 return $false
             }
@@ -441,6 +531,21 @@ function Initialize-Ambiente {
         'AccessReview.Read.All', 'RoleManagement.Read.Directory',
         'DeviceManagementManagedDevices.Read.All'
     )
+    if ($script:AuthModo -eq 'DeviceCode') {
+        Write-Info 'Autenticando no Microsoft Graph por device code (sem modulo).'
+        $autenticou = Connect-GraphDeviceCode -Escopos $escopos
+        if (-not $autenticou) { return $false }
+        $org = Invoke-GraphGet -Uri 'https://graph.microsoft.com/v1.0/organization'
+        $primeira = @(Get-Prop -Obj $org -Nome 'value' -Padrao @())
+        if ($primeira.Count -gt 0) {
+            $script:TenantId = [string](Get-Prop -Obj $primeira[0] -Nome 'id')
+            Write-Ok ('Graph conectado por device code (tenant ' + $script:TenantId + ')')
+        }
+        else {
+            Write-Aviso 'Token obtido, mas /organization nao respondeu. Verifique o consentimento dos escopos.'
+        }
+    }
+    else {
     $ctx = $null
     try { $ctx = Get-MgContext } catch { $ctx = $null }
     $reconectar = $true
@@ -472,6 +577,7 @@ function Initialize-Ambiente {
         Write-Ok ('Graph conectado como ' + $ctx.Account + ' (tenant ' + $ctx.TenantId + ')')
     }
     $script:TenantId = (Get-MgContext).TenantId
+    }
     if (-not $SkipExchange) {
         $jaExo = $false
         try {

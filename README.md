@@ -192,6 +192,7 @@ $SkipExchange        = $false
 $SkipExcel           = $false
 $Anonimizar          = $false    # hasheia UPNs nos CSVs de saida
 $InstalarModulos     = $true
+$AuthGraph           = 'Auto'    # Auto | DeviceCode | Modulo (ver Troubleshooting)
 ```
 
 2. Selecione o arquivo inteiro, copie e cole no PowerShell. Serão solicitados até três logins:
@@ -350,17 +351,43 @@ e a seção de permissões antes de reportar isso ao cliente como um gap.
 
 ### `Method 'GetTokenAsync' ... does not have an implementation`
 
-Conflito de assembly do Microsoft Graph: há mais de uma versão do `Microsoft.Graph.Authentication`
-no disco, ou uma DLL incompatível já foi carregada na sessão por outro módulo. Feche **todas** as
-janelas do PowerShell e, em uma janela nova:
+Conflito de assembly do Microsoft Graph: o `Microsoft.Graph.Authentication.Core` encontra no
+processo um `Azure.Core` de versão incompatível. Costuma acontecer quando há versões misturadas
+no disco, quando outro módulo (Az, Exchange) já carregou a DLL na sessão, ou no Windows
+PowerShell 5.1.
+
+**O script se resolve sozinho.** Com `$AuthGraph = 'Auto'` (padrão), ao detectar a falha ele troca
+para **autenticação por device code em HTTP puro**, sem usar o módulo. Você recebe um código para
+colar em [microsoft.com/devicelogin](https://microsoft.com/devicelogin) e o assessment segue
+normalmente.
+
+Para pular a tentativa com o módulo e ir direto ao device code:
+
+```powershell
+$AuthGraph = 'DeviceCode'
+```
+
+Esse modo não exige `Microsoft.Graph.Authentication` instalado — usa apenas `Invoke-RestMethod`
+contra o endpoint OAuth e o app público **Microsoft Graph Command Line Tools**, o mesmo usado pelo
+módulo oficial (o consentimento já dado continua valendo).
+
+Se ainda assim quiser corrigir o módulo, feche **todas** as janelas do PowerShell e, em uma janela
+nova:
 
 ```powershell
 Get-InstalledModule Microsoft.Graph.Authentication -AllVersions | Uninstall-Module -Force
+Remove-Item "$HOME\Documents\PowerShell\Modules\Microsoft.Graph*" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item "$HOME\Documents\WindowsPowerShell\Modules\Microsoft.Graph*" -Recurse -Force -ErrorAction SilentlyContinue
 Install-Module Microsoft.Graph.Authentication -Scope CurrentUser -Force
 ```
 
-Depois abra outra janela nova e rode o assessment **antes** de carregar qualquer outro módulo.
-O script avisa quando detecta múltiplas versões instaladas.
+O `Uninstall-Module` sozinho costuma não bastar: ele deixa para trás arquivos em `Dependencies`
+que estavam em uso, e cópias instaladas em outro escopo ou na outra edição do PowerShell
+continuam no `PSModulePath`. Para conferir o que sobrou:
+
+```powershell
+Get-Module -ListAvailable Microsoft.Graph.Authentication | Select-Object Version, ModuleBase
+```
 
 ### `Nenhum usuario coletado`
 
